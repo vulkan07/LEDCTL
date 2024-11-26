@@ -3,21 +3,23 @@ const ws_address = "ws://" + window.location.hostname + ":8080"
 let retryInterval = 100;
 let synced = false;
 
+const PALETTE_LEN = 9;
 let palette = [];
 let buttons = 0;
+const POWER_BTN = 1;
 
 let hsv = {h:0, s:0, v:0};
 
-const PACKET_RGB = 0x01;
-const PACKET_SYNC_RGB = 0x02;
-const PACKET_SYNC_BUTTONS = 0x03;
-const PALETTE_LEN = 4;
+const PACKET_SEND_MASK = 128;
+const PACKET_COLOR = 1;
+const PACKET_BUTTONS = 2;
+const PACKET_PALETTE = 3;
 
 function HSVtoRGB(hsv) {
     h = hsv.h; s = hsv.s; v = hsv.v;
-    h *= .36; // normalize from 0-1000 range of the sliders
-    s *= .001;
-    v *= .001;
+    h *= .025; // normalize from 0-1000 range of the sliders .36, .001
+    s *= .025;
+    v *= .025;
     let f= (n,k=(n+h/60)%6) => v - v*s*Math.max( Math.min(k,4-k,1), 0);
     let rgb = {
         r: f(5) * 255,
@@ -93,7 +95,7 @@ function connectWebSocket() {
         try {
             const data = new Uint8Array(await event.data.arrayBuffer());
             switch(data[0]) {
-                case PACKET_SYNC_RGB:
+                case PACKET_COLOR:
                     if (data.length != 4) {
                         console.error("Invalid packet when syncing");
                         break;
@@ -107,17 +109,21 @@ function connectWebSocket() {
                     syncSliders();
                     break;
 
-                case PACKET_SYNC_BUTTONS:
+                case PACKET_PALETTE:
                     const length = data[1]+1;
                     buttons = data[2];
 
                     let j = 0;
-                    for (let i = 3; i < length*3; i+=3) {
+                    for (let i = 2; i < length*3; i+=3) {
                         palette[j] = {r:data[i], g:data[i+1], b:data[i+2]};
                         j++;
                     }
                     syncPalette();
-                    syncButtons();
+                    console.log("Synced palette");
+                    break;
+
+                case PACKET_BUTTONS:
+                    console.log("skipped :Synced buttons");
                     break;
             }
         } catch (err) {
@@ -131,8 +137,9 @@ function connectWebSocket() {
         document.getElementById('feedback').classList.add("hidden");
         document.getElementById('spinner').classList.add("hidden");
 
-        ws.send( new Uint8Array([PACKET_SYNC_RGB]) );
-        ws.send( new Uint8Array([PACKET_SYNC_BUTTONS]) );
+        ws.send( new Uint8Array([PACKET_COLOR]) );
+        ws.send( new Uint8Array([PACKET_BUTTONS]) );
+        ws.send( new Uint8Array([PACKET_PALETTE]) );
     };
     ws.onclose = (event) => {
         console.log("Connection lost, retrying in a bit");
@@ -143,6 +150,18 @@ function connectWebSocket() {
     };
 }
 connectWebSocket();
+
+function powerButtonUpdate() {
+    let btn = document.getElementById('powerbtn')
+    buttons ^= POWER_BTN; //Flip state
+    if (buttons & POWER_BTN)
+        btn.classList.add("pressed");
+    else
+        btn.classList.remove("pressed");
+    
+    let packet = new Uint8Array([PACKET_BUTTONS | PACKET_SEND_MASK, buttons]);
+}
+
 
 function sendHSVUpdate() {
     if (!synced) return;
@@ -159,19 +178,7 @@ function sendHSVUpdate() {
 
     let rgb = HSVtoRGB(hsv);
 
-    let rgbBytes = new Uint8Array([PACKET_RGB, rgb.r, rgb.g, rgb.b]);
+    let rgbBytes = new Uint8Array([PACKET_COLOR | PACKET_SEND_MASK, rgb.r, rgb.g, rgb.b]);
     if (ws.readyState === ws.OPEN)
         ws.send(rgbBytes);
 }
-
-// obsolete
-function sendRGBUpdate() {
-    let red = parseInt(document.getElementById('slider_r').value);
-    let green = parseInt(document.getElementById('slider_g').value);
-    let blue = parseInt(document.getElementById('slider_b').value);
-
-    let rgbBytes = new Uint8Array([PACKET_RGB, red, green, blue]);
-    if (ws.readyState === ws.OPEN)
-        ws.send(rgbBytes);
-}
-

@@ -12,29 +12,38 @@
         <div id="content">
             <img id="spinner" src="static/spinner.gif"></img>
             <h1 id="feedback">Connecting</h1>
-            <div class="container btncontainer">
-                <div class="btndiv"> 
-                    <label>Colors</label><br>
-                    <button id="btn1">1</button>
-                    <button id="btn2">2</button>
-                    <button id="btn3">3</button>
-                    <button id="btn4">4</button>
-                </div>
-                <div class="container btndiv"> 
-                    <label>Control</label><br>
-                    <button class="depressed" id="powerbtn", class="depressed">POWER</button>
-                    <button class="depressed" id="fadebtn", class="depressed">FADE</button>
-                    <button class="depressed" id="circadianbtn", class="depressed">DAYNIGHT</button>
-                    <button class="depressed" id="savebtn", class="depressed">SAVE</button>
+
+            <h1 id="title">LEDCTL</h1>
+
+            <div class="container">
+                <button id="powerbtn" onclick="powerButtonUpdate()"><img src="static/power.svg"></img></button>
+            </div>
+
+            <div class="container">
+                <label>Colors</label><br>
+                <div id="btndiv">
+                    <button class="colorbtn" id="btn1">1</button>
+                    <button class="colorbtn" id="btn2">2</button>
+                    <button class="colorbtn" id="btn3">3</button>
+                    <button class="colorbtn" id="btn4">4</button>
+                    <button class="colorbtn" id="btn5">5</button>
+                    <button class="colorbtn" id="btn6">6</button>
+                    <button class="colorbtn" id="btn7">7</button>
+                    <button class="colorbtn" id="btn8">8</button>
+                    <button class="colorbtn" id="btn9">9</button>
+                    <button class="colorbtn" id="btnsave"><img id="bookmarkimg" src="static/bookmark.png"></img></button>
                 </div>
             </div>
-            <div id="hsvdiv">
-                <label>HSV</label><br>
-                <input type="range" min="0" max="1024" value="0" class="slider" id="slider_h">
+            <div class="container">
+                <label>HSVA</label>
                 <br>
-                <input type="range" min="0" max="1024" value="0" class="slider" id="slider_s">
+                <input type="range" min="0" max="1023" value="0" class="slider" id="slider_h">
                 <br>
-                <input type="range" min="0" max="1024" value="0" class="slider" id="slider_v">
+                <input type="range" min="0" max="1023" value="0" class="slider" id="slider_s">
+                <br>
+                <input type="range" min="0" max="1023" value="0" class="slider" id="slider_v">
+                <br>
+                <input type="range" min="0" max="1023" value="0" class="slider" id="slider_a">
             </div>
         </div>
     </body>

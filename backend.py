@@ -6,10 +6,11 @@ import atexit
 import time
 
 ## PACKET HEADERS ##
-# use 0xA0 (1010 0000) mask for header's first 4 bits?
-PACKET_RGB = 0x01
-PACKET_SYNC_RGB = 0x02
-PACKET_SYNC_BUTTONS = 0x03
+PACKET_RECEIVE_BIT = 128 
+PACKET_RECEIVE_MASK = 0b00001111 
+PACKET_COLOR = 1
+PACKET_BUTTONS = 2
+PACKET_PALETTE = 3
 
 ## SOCKET & USB SETTINGS ##
 HTTP_PORT = 8080
@@ -23,12 +24,13 @@ arduino = None
 ## LED CONTROLLER STATE ##
 STATE_FILE = ".state"
 rgb = [0,0,0]
-palette = [
-        {"r":255, "g":0, "b":0},
-        {"r":255, "g":255, "b":0},
-        {"r":0, "g":0, "b":255},
-        {"r":0, "g":0, "b":0}
-]
+PALETTE_LENGTH = 9
+palette = []
+buttons = 0
+
+palette.append({"r":255,"g":0,"b":0})
+palette.append({"r":0,"g":255,"b":0})
+palette.append({"r":255,"g":255,"b":0})
 
 ## EXPERIMENTAL GOOFY PHYSICS IDK LOGARITHM WTF GAMMA AND SHIT ##
 def gamma_correct(value, gamma=1.8):
@@ -68,7 +70,7 @@ async def sync(current):
     newset = {current}
     for socket in sockets:
         if socket != current: # dont sync with packet sender
-            data = [PACKET_SYNC_RGB, rgb[0], rgb[1], rgb[2]]
+            data = [PACKET_COLOR, rgb[0], rgb[1], rgb[2]]
             try: 
                 await socket.send(bytes(data))
                 newset.add(socket)
@@ -78,39 +80,61 @@ async def sync(current):
 
 
 async def websocket_receive(websocket, path):
-    global rgb
     sockets.add(websocket)
     try:
         async for message in websocket:
             if not isinstance(message, bytes):
                 print("Message not Byte Array")
                 continue
-#            print(message.hex())
+#            print( [bin(x) for x in message] )
 
-            if message[0] == PACKET_SYNC_RGB:
-                print(f"Syncing color for {websocket.remote_address[0]}")
-                data = [PACKET_SYNC_RGB, rgb[0], rgb[1], rgb[2]]
-                await websocket.send(bytes(data))
-                continue
-            if message[0] == PACKET_SYNC_BUTTONS:
-                print(f"Syncing buttons for {websocket.remote_address[0]}")
-                #data = [PACKET_SYNC_BUTTONS, 0b00001010, 4, 255,0,0, 0,255,0, 0,0,255, 255,255,255]
-                data = [PACKET_SYNC_BUTTONS, len(palette)+1, 0b00001111]
-                for color in palette:
-                    data.append(color["r"]);
-                    data.append(color["g"]);
-                    data.append(color["b"]);
-
-                await websocket.send(bytes(data))
+            if message[0] & PACKET_RECEIVE_MASK == PACKET_COLOR:
+                global rgb
+                if message[0] & PACKET_RECEIVE_BIT:
+                    ## RECEIVE RGB
+                    rgb = list(message[1::])
+                    sendUART()
+                    await sync(websocket)
+                else:
+                    ## SEND RGB
+                    print(f"Syncing color for {websocket.remote_address[0]}")
+                    data = [PACKET_COLOR, rgb[0], rgb[1], rgb[2]]
+                    await websocket.send(bytes(data))
                 continue
 
-            if message[0] == PACKET_RGB and len(message) == 4:
-                rgb = list(message[1::])
-                sendUART()
-                await sync(websocket)
+            if message[0] & PACKET_RECEIVE_MASK == PACKET_PALETTE:
+                if message[0] & PACKET_RECEIVE_BIT:
+                    print(f"Receiving palette from {websocket.remote_address[0]}")
+                    print("not implemented!!!!!!!!!!!!!!444")
+                else:
+                    print(f"Syncing palette for {websocket.remote_address[0]}")
+                    data = [PACKET_PALETTE, PALETTE_LENGTH]
+                    for i in range(PALETTE_LENGTH):
+                        if (i >= len(palette)):
+                            data.append(0)
+                            data.append(0)
+                            data.append(0)
+                            continue
+                        color = palette[i]
+                        data.append(color["r"])
+                        data.append(color["g"])
+                        data.append(color["b"])
 
-            else:
-                print("Invalid packet format")
+                    await websocket.send(bytes(data))
+                continue
+
+            if message[0] & PACKET_RECEIVE_MASK == PACKET_BUTTONS:
+                global buttons
+                if message[0] & PACKET_RECEIVE_BIT:
+                    print(f"Receiving buttons from {websocket.remote_address[0]}")
+                    buttons = message[1]
+                    print(bin(buttons))
+                else:
+                    print(f"Syncing buttons for {websocket.remote_address[0]}")
+                    await websocket.send(bytes([PACKET_BUTTONS, buttons]))
+                continue
+
+            print(f"Invalid packet: {bin(message[0])}")
 
     except websockets.exceptions.ConnectionClosed as e:
         print(f"Connection Closed: {websocket.remote_address[0]} - {e}")
