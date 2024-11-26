@@ -23,7 +23,7 @@ arduino = None
 
 ## LED CONTROLLER STATE ##
 STATE_FILE = ".state"
-rgb = [0,0,0]
+color = [0,0,0,0]
 PALETTE_LENGTH = 9
 palette = []
 buttons = 0
@@ -35,6 +35,12 @@ palette.append({"r":255,"g":255,"b":0})
 ## EXPERIMENTAL GOOFY PHYSICS IDK LOGARITHM WTF GAMMA AND SHIT ##
 def gamma_correct(value, gamma=1.8):
     return int((value / 255.0) ** gamma * 255)
+
+# range: 0-255
+def HSVtoRGB(hsv):
+    h, s, v = hsv[0] / 255 * 360, hsv[1] / 255, hsv[2] / 255
+    f = lambda n: v - v * s * max(min((n + h / 60) % 6, 4 - (n + h / 60) % 6, 1), 0)
+    return [  round(f(5) * 255), round(f(3) * 255), round(f(1) * 255) ]
 
 def arduino_connect():
     global arduino
@@ -56,12 +62,16 @@ def sendUART():
         arduino_connect()
         return
     try:
-        rgb2 = [0,0,0]
-        for i in range(3):
-            rgb2[i] = gamma_correct(rgb[i])
-        arduino.write(rgb2)
+        rgb = HSVtoRGB(color)
+        rgba = [0,0,0,color[3]]
+        for i in range(3)
+        #    rgba[i] = gamma_correct(rgb[i])
+            rgba[i] = rgb[i] ## SKIPPING GAMMA CORRECTION
+        print(rgba)
+        arduino.write(rgba)
     except Exception as e:
         print("Arduino connection failed:", e, "(reconnecting...)")
+        raise e
         arduino_connect()
 
 
@@ -70,7 +80,7 @@ async def sync(current):
     newset = {current}
     for socket in sockets:
         if socket != current: # dont sync with packet sender
-            data = [PACKET_COLOR, rgb[0], rgb[1], rgb[2]]
+            data = [PACKET_COLOR, color[0], color[1], color[2], color[3]]
             try: 
                 await socket.send(bytes(data))
                 newset.add(socket)
@@ -89,16 +99,17 @@ async def websocket_receive(websocket, path):
 #            print( [bin(x) for x in message] )
 
             if message[0] & PACKET_RECEIVE_MASK == PACKET_COLOR:
-                global rgb
+                global color
                 if message[0] & PACKET_RECEIVE_BIT:
                     ## RECEIVE RGB
-                    rgb = list(message[1::])
+                    color = list(message[1::])
+                  ##  print(color)
                     sendUART()
                     await sync(websocket)
                 else:
                     ## SEND RGB
                     print(f"Syncing color for {websocket.remote_address[0]}")
-                    data = [PACKET_COLOR, rgb[0], rgb[1], rgb[2]]
+                    data = [PACKET_COLOR, color[0], color[1], color[2], color[3]]
                     await websocket.send(bytes(data))
                 continue
 
@@ -115,10 +126,10 @@ async def websocket_receive(websocket, path):
                             data.append(0)
                             data.append(0)
                             continue
-                        color = palette[i]
-                        data.append(color["r"])
-                        data.append(color["g"])
-                        data.append(color["b"])
+                        c = palette[i]
+                        data.append(c["r"])
+                        data.append(c["g"])
+                        data.append(c["b"])
 
                     await websocket.send(bytes(data))
                 continue
@@ -143,21 +154,21 @@ async def websocket_receive(websocket, path):
 
 
 def loadState():
-    global rgb
+    global color
     try:
         with open(STATE_FILE, "rb") as f:
             data = f.read()
-            rgb = list(data)
+            color = list(data)
 
-        print(f"Restored state from '{STATE_FILE}': {rgb}")
+        print(f"Restored state from '{STATE_FILE}': {color}")
     except Exception as e:
         print(f"Cannot restore state from '{STATE_FILE}': {e}")
 
 
 def saveState():
     with open(STATE_FILE, "wb") as of:
-        of.write(bytes(rgb))
-    print(f"Saved state to '{STATE_FILE}': {rgb}")
+        of.write(bytes(color))
+    print(f"Saved state to '{STATE_FILE}': {color}")
 
 atexit.register(saveState)
 

@@ -77,6 +77,11 @@ button {
 #powerbtn > img {
     height: -webkit-fill-available;
 }
+#dimbtn {
+    width: 40%;
+    text-decoration: line-through;
+}
+
 
 #btndiv {
     margin:auto;
@@ -100,6 +105,8 @@ label {
     height:34px;
     margin-top:4px;
     margin-bottom:16px;
+    margin-left: 4px;
+    margin-right: 4px;
     border-radius:4px;
 
     appearance: none;

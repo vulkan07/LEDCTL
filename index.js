@@ -3,61 +3,39 @@ const ws_address = "ws://" + window.location.hostname + ":8080"
 let retryInterval = 100;
 let synced = false;
 
+let color = {h:0, s:0, v:0, a:0};
+
 const PALETTE_LEN = 9;
 let palette = [];
-let buttons = 0;
-const POWER_BTN = 1;
 
-let hsv = {h:0, s:0, v:0};
+const POWER_BTN = 1;
+const DIM_BTN = 2;
+let buttons = 0; // 8 bits each correspond to a button defined above
+
 
 const PACKET_SEND_MASK = 128;
 const PACKET_COLOR = 1;
 const PACKET_BUTTONS = 2;
 const PACKET_PALETTE = 3;
 
-function HSVtoRGB(hsv) {
-    h = hsv.h; s = hsv.s; v = hsv.v;
-    h *= .025; // normalize from 0-1000 range of the sliders .36, .001
-    s *= .025;
-    v *= .025;
-    let f= (n,k=(n+h/60)%6) => v - v*s*Math.max( Math.min(k,4-k,1), 0);
-    let rgb = {
-        r: f(5) * 255,
-        g: f(3) * 255,
-        b: f(1) * 255,
-    };
-    return rgb;
-}
-function RGBtoHSV(r, g, b) {
-    r /= 255;
-    g /= 255;
-    b /= 255;
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const delta = max - min;
-    const v = max * 1000; // Scale up to match HSV range in your sliders
-    const s = max === 0 ? 0 : (delta / max) * 1000; // Scale up to match slider range
-    let h;
-    if (delta === 0) { h = 0;
-    } else if (max === r) {
-        h = (60 * ((g - b) / delta) + 360) % 360;
-    } else if (max === g) {
-        h = 60 * ((b - r) / delta + 2);
-    } else {
-        h = 60 * ((r - g) / delta + 4);
-    }
-    h = h / 0.36; // Normalize to 0-1000 range of sliders
-    return { h, s, v };
+// ChatGPT's magical compact HSV->RGB function
+// input/output range: 0-255
+function HSVtoRGB({ h, s, v }) {
+  s /= 255; v /= 255;
+  let f = (n, k = (n + h / 60) % 6) => v - v * s * Math.max(Math.min(k, 4 - k, 1), 0);
+  return { r: Math.round(f(5) * 255), g: Math.round(f(3) * 255), b: Math.round(f(1) * 255) };
 }
 
-document.getElementById('slider_h').oninput = sendHSVUpdate;
-document.getElementById('slider_s').oninput = sendHSVUpdate;
-document.getElementById('slider_v').oninput = sendHSVUpdate;
+document.getElementById('slider_h').oninput = sendColorUpdate;
+document.getElementById('slider_s').oninput = sendColorUpdate;
+document.getElementById('slider_v').oninput = sendColorUpdate;
+document.getElementById('slider_a').oninput = sendColorUpdate;
 
 
 function syncPalette() {
     for (let i = 0; i < PALETTE_LEN; i++) {
-        document.getElementById("btn"+(i+1)).style.background = "rgb("+ palette[i].r + "," + palette[i].g + "," + palette[i].b + ")";
+        if ( !Object.values(palette[i]).every(v => !v) ) // only change color if not black, that means its unassigned
+            document.getElementById("btn"+(i+1)).style.background = "rgb("+ palette[i].r + "," + palette[i].g + "," + palette[i].b + ")";
     }
 }
 function setButtonClass(element, classname, set) {
@@ -79,10 +57,12 @@ function syncSliders() {
     sh = document.getElementById('slider_h');
     ss = document.getElementById('slider_s');
     sv = document.getElementById('slider_v');
-    sh.value = hsv.h;
-    ss.value = hsv.s;
-    sv.value = hsv.v;
-    let rgb2 = HSVtoRGB({h:hsv.h,s:1000,v:1000});
+    sa = document.getElementById('slider_a');
+    sh.value = color.h*4;
+    ss.value = color.s*4;
+    sv.value = color.v*4;
+    sa.value = color.a*4;
+    let rgb2 = HSVtoRGB({h:color.h,s:255,v:255});
     ss.style.backgroundImage = "linear-gradient(90deg, gray, rgb(" + rgb2.r + "," + rgb2.g + "," + rgb2.b + "))";
     sv.style.backgroundImage = "linear-gradient(90deg, black, rgb(" + rgb2.r + "," + rgb2.g + "," + rgb2.b + "))";
 }
@@ -96,22 +76,23 @@ function connectWebSocket() {
             const data = new Uint8Array(await event.data.arrayBuffer());
             switch(data[0]) {
                 case PACKET_COLOR:
-                    if (data.length != 4) {
-                        console.error("Invalid packet when syncing");
+                    if (data.length != 5) {
+                        console.error("Invalid packet when syncing color");
                         break;
                     }
-                    r = data[1];
-                    g = data[2];
-                    b = data[3];
-                    hsv = RGBtoHSV(r,g,b);
+                    color = {
+                        h: data[1],
+                        s: data[2],
+                        v: data[3],
+                        a: data[4],
+                    };
 
-                    console.log("Sync RGB:", r,g,b);
+                    console.log("Syncing color:", color);
                     syncSliders();
                     break;
 
                 case PACKET_PALETTE:
-                    const length = data[1]+1;
-                    buttons = data[2];
+                    const length = data[1];
 
                     let j = 0;
                     for (let i = 2; i < length*3; i+=3) {
@@ -128,6 +109,7 @@ function connectWebSocket() {
             }
         } catch (err) {
             console.error(err);
+            throw err;
         }
         synced = true;
     };
@@ -159,26 +141,41 @@ function powerButtonUpdate() {
     else
         btn.classList.remove("pressed");
     
-    let packet = new Uint8Array([PACKET_BUTTONS | PACKET_SEND_MASK, buttons]);
+    const packet = new Uint8Array([PACKET_BUTTONS | PACKET_SEND_MASK, buttons]);
+    ws.send( packet );
+}
+function dimButtonUpdate() {
+    let btn = document.getElementById('dimbtn')
+    buttons ^= DIM_BTN; //Flip state
+    if (buttons & DIM_BTN) {
+        btn.textContent = "Slider";
+    } else {
+        btn.textContent = "Gamma";
+    }
+    
+    const packet = new Uint8Array([PACKET_BUTTONS | PACKET_SEND_MASK, buttons]);
+    ws.send( packet );
 }
 
 
-function sendHSVUpdate() {
+function sendColorUpdate() {
     if (!synced) return;
 
-    let sh,ss,sv;
+    let sh,ss,sv,sa;
     sh = document.getElementById('slider_h');
     ss = document.getElementById('slider_s');
     sv = document.getElementById('slider_v');
-    let h = parseInt(sh.value);
-    let s = parseInt(ss.value);
-    let v = parseInt(sv.value);
-    hsv = {h,s,v};
+    sa = document.getElementById('slider_a');
+    let h = parseInt(sh.value) * 0.25; // 1024 -> 256
+    let s = parseInt(ss.value) * 0.25; // 1024 -> 256
+    let v = parseInt(sv.value) * 0.25; 
+    let a = parseInt(sa.value) * 0.25;
+    color = {h,s,v,a};
     syncSliders();
 
-    let rgb = HSVtoRGB(hsv);
+//    let rgb = HSVtoRGB(hsv);
 
-    let rgbBytes = new Uint8Array([PACKET_COLOR | PACKET_SEND_MASK, rgb.r, rgb.g, rgb.b]);
+    let data = new Uint8Array([PACKET_COLOR | PACKET_SEND_MASK, h, s, v, a]);
     if (ws.readyState === ws.OPEN)
-        ws.send(rgbBytes);
+        ws.send(data);
 }
