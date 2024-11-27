@@ -9,8 +9,8 @@ const PALETTE_LEN = 9;
 let palette = [];
 
 const POWER_BTN = 1;
-const DIM_BTN = 2;
 let buttons = 0; // 8 bits each correspond to a button defined above
+let colorSaving = false;
 
 const PACKET_SEND_MASK = 128;
 const PACKET_COLOR = 1;
@@ -32,15 +32,18 @@ function sendData(data) {
 // ChatGPT's magical compact HSV->RGB function
 // input/output range: 0-255
 function HSVtoRGB({ h, s, v }) {
-  s /= 255; v /= 255;
+  h *= 1.43;s /= 255; v /= 255;
   let f = (n, k = (n + h / 60) % 6) => v - v * s * Math.max(Math.min(k, 4 - k, 1), 0);
   return { r: Math.round(f(5) * 255), g: Math.round(f(3) * 255), b: Math.round(f(1) * 255) };
 }
 
 function syncPalette() {
     for (let i = 0; i < PALETTE_LEN; i++) {
-        if ( Object.values(palette[i]).every(v => !v) ) // only change color if not black, that means its unassigned
-            continue
+        if ( Object.values(palette[i]).every(v => !v) ) { // only change color if not black, that means its unassigned
+            document.getElementById("btn"+(i+1)).style.background = "unset";
+            continue;
+        }
+
         const rgb2 = HSVtoRGB({h:palette[i].h,s:palette[i].s,v:palette[i].v});
         document.getElementById("btn"+(i+1)).style.background = "rgb("+ rgb2.r + "," + rgb2.g + "," + rgb2.b + ")";
     }
@@ -71,7 +74,7 @@ function syncSliders() {
 }
 
 function connectWebSocket() {
-    console.log("Attempting to connect to WebSocket");
+    console.log("Connecting to WebSocket");
     ws = new WebSocket(ws_address);
 //    ws.binaryType = "arraybuffer";
     ws.onmessage = async (event) => {
@@ -90,7 +93,7 @@ function connectWebSocket() {
                         a: data[4],
                     };
 
-                    console.log("Syncing color:", color);
+                    if (!synced) console.log("Syncing color:", color);
                     syncSliders();
                     break;
 
@@ -103,12 +106,13 @@ function connectWebSocket() {
                         j++;
                     }
                     syncPalette();
-                    console.log("Synced palette");
+                    console.log("Syncing palette");
                     break;
 
                 case PACKET_BUTTONS:
                     buttons = data[1];
                     syncButtons();
+                    console.log("Syncing buttons");
                     break;
             }
         } catch (err) {
@@ -148,21 +152,37 @@ function powerButtonUpdate() {
     const packet = new Uint8Array([PACKET_BUTTONS | PACKET_SEND_MASK, buttons]);
     sendData( packet );
 }
-function dimButtonUpdate() {
-    let btn = document.getElementById('dimbtn')
-    buttons ^= DIM_BTN; //Flip state
-    if (buttons & DIM_BTN) {
-        btn.textContent = "Slider";
-    } else {
-        btn.textContent = "Gamma";
-    }
-    
-    const packet = new Uint8Array([PACKET_BUTTONS | PACKET_SEND_MASK, buttons]);
-    sendData( packet );
+
+function colorSaveButton() {
+    colorSaving = !colorSaving;
+    setButtonClass(document.getElementById('savebtn'), 'pressed', colorSaving);
 }
 
 // index=-1 means no button was pressed, used for deselecting, when a slider is moved
 function colorButton(index) {
+    
+    if (colorSaving) {
+        palette[index-1] = {
+            h: parseInt(document.getElementById('slider_h').value*0.25),
+            s: parseInt(document.getElementById('slider_s').value*0.25),
+            v: parseInt(document.getElementById('slider_v').value*0.25),
+            a: parseInt(document.getElementById('slider_a').value*0.25)
+        };
+        syncPalette();
+        colorSaving = false;
+        setButtonClass(document.getElementById('savebtn'), 'pressed', false);
+        let btn;
+        for (let i = 1; i <= PALETTE_LEN; i++) {
+            btn = document.getElementById('btn'+i);
+            if (i === index)
+                btn.classList.add("pressed");
+            else
+                btn.classList.remove("pressed");
+        }
+
+        sendPaletteUpdate();
+        return;
+    }
     
     if ( index !== -1 && Object.values(palette[index-1]).every(v => !v) ) // only change color if not black, that means its unassigned
         return;
@@ -196,6 +216,20 @@ function onSlider() {
     sendColorUpdate();
 }
 
+function sendPaletteUpdate() {
+    if (!synced) return;
+
+    let data = [PACKET_PALETTE | PACKET_SEND_MASK, PALETTE_LEN];
+    for (let i = 0; i < PALETTE_LEN; i++) {
+        data.push(palette[i].h);
+        data.push(palette[i].s);
+        data.push(palette[i].v);
+        data.push(palette[i].a);
+    }
+    console.log(data);
+
+    sendData(new Uint8Array(data));
+}
 function sendColorUpdate() {
     if (!synced) return;
 
@@ -214,3 +248,8 @@ function sendColorUpdate() {
     let data = new Uint8Array([PACKET_COLOR | PACKET_SEND_MASK, h, s, v, a]);
     sendData(data);
 }
+
+
+  const resizeOps = () => document.documentElement.style.setProperty("--vh", window.innerHeight * 0.01 + "px");
+  resizeOps();
+  window.addEventListener("resize", resizeOps);

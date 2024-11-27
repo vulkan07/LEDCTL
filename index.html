@@ -2,7 +2,7 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="height=device-height, width=device-width, initial-scale=1.0">
         <meta name="color-scheme" content="only light">
         <link rel="shortcut icon" type="image/png" href="static/site_icon.png">
         <link rel="stylesheet" href="style.css">
@@ -32,7 +32,7 @@
                     <button class="colorbtn" onclick="colorButton(7)" id="btn7"></button>
                     <button class="colorbtn" onclick="colorButton(8)" id="btn8"></button>
                     <button class="colorbtn" onclick="colorButton(9)" id="btn9"></button>
-                    <button class="colorbtn" onclick="colorSaveButton()" id="btnsave"><img id="bookmarkimg" src="static/bookmark.png"></img></button>
+                    <button class="colorbtn" onclick="colorSaveButton()" id="savebtn"><img id="bookmarkimg" src="static/bookmark.png"></img></button>
                 </div>
             </div>
             <div class="container">
@@ -45,11 +45,6 @@
                 <input type="range" min="0" max="1023" value="0" class="slider" id="slider_v">
                 <br>
                 <input type="range" min="0" max="1023" value="0" class="slider" id="slider_a">
-            </div>
-            <div class="container">
-                <label>Dimming Method</label>
-                <br>
-                <button id="dimbtn" onclick="dimButtonUpdate()">Slider</button>
             </div>
         </div>
     </body>

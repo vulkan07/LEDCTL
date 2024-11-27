@@ -29,13 +29,10 @@ PALETTE_LENGTH = 9
 palette = []
 
 POWER_BTN = 1
-DIM_BTN = 2
 buttons = 1 # power button starts with on
 
-palette.append({"h":255,"s":255,"v":128,"a":255})
-palette.append({"h":128,"s":255,"v":128,"a":255})
-palette.append({"h":66,"s":255,"v":128,"a":255})
-palette.append({"h":230,"s":100,"v":128,"a":155})
+for i in range(PALETTE_LENGTH):
+    palette.append({"h":0,"s":0,"v":0,"a":0})
 
 ## EXPERIMENTAL GOOFY PHYSICS IDK LOGARITHM WTF GAMMA AND SHIT ##
 def gamma_correct(value, gamma=1.8):
@@ -84,13 +81,26 @@ def colorToArduino():
         raise e
         arduino_connect()
 
-
-async def sync(current):
+SYNC_COLOR = 0
+SYNC_BUTTONS = 1
+SYNC_PALETTE = 2
+async def sync(current, what):
     global sockets
     newset = {current}
     for socket in sockets:
         if socket != current: # dont sync with packet sender
-            data = [PACKET_COLOR, color[0], color[1], color[2], color[3]]
+            if what == SYNC_COLOR:
+                data = [PACKET_COLOR, color[0], color[1], color[2], color[3]]
+            elif what == SYNC_BUTTONS:
+                data = [PACKET_BUTTONS, buttons]
+            elif what == SYNC_PALETTE:
+                data = [PACKET_PALETTE, PALETTE_LENGTH]
+                for i in range(PALETTE_LENGTH):
+                    c = palette[i]
+                    data.append(c["h"])
+                    data.append(c["s"])
+                    data.append(c["v"])
+                    data.append(c["a"])
             try: 
                 await socket.send(bytes(data))
                 newset.add(socket)
@@ -114,8 +124,8 @@ async def websocket_receive(websocket, path):
                     ## RECEIVE RGB
                     color = list(message[1::])
                   ##  print(color)
+                    await sync(websocket, SYNC_COLOR)
                     colorToArduino()
-                    await sync(websocket)
                 else:
                     ## SEND RGB
                     print(f"Syncing color for {websocket.remote_address[0]}")
@@ -126,17 +136,23 @@ async def websocket_receive(websocket, path):
             if message[0] & PACKET_RECEIVE_MASK == PACKET_PALETTE:
                 if message[0] & PACKET_RECEIVE_BIT:
                     print(f"Receiving palette from {websocket.remote_address[0]}")
-                    print("not implemented!!!!!!!!!!!!!!444")
+                    if message[1] != PALETTE_LENGTH:
+                        print(f"mismatching palette size wtf")
+                    j = 0
+                    for i in range(2, PALETTE_LENGTH*4, 4):
+                        palette[j] = {
+                                'h': message[i],
+                                's': message[i+1],
+                                'v': message[i+2],
+                                'a': message[i+3]
+                        }
+                        j+=1
+                    await sync(websocket, SYNC_PALETTE)
+
                 else:
                     print(f"Syncing palette for {websocket.remote_address[0]}")
                     data = [PACKET_PALETTE, PALETTE_LENGTH]
                     for i in range(PALETTE_LENGTH):
-                        if (i >= len(palette)):
-                            data.append(0)
-                            data.append(0)
-                            data.append(0)
-                            data.append(0)
-                            continue
                         c = palette[i]
                         data.append(c["h"])
                         data.append(c["s"])
@@ -151,8 +167,9 @@ async def websocket_receive(websocket, path):
                 if message[0] & PACKET_RECEIVE_BIT:
                     print(f"Receiving buttons from {websocket.remote_address[0]}")
                     buttons = message[1]
+                    await sync(websocket, SYNC_BUTTONS)
                     colorToArduino()
-                    print(bin(buttons))
+                    ##print(bin(buttons))
                 else:
                     print(f"Syncing buttons for {websocket.remote_address[0]}")
                     await websocket.send(bytes([PACKET_BUTTONS, buttons]))
@@ -167,11 +184,15 @@ async def websocket_receive(websocket, path):
 
 
 def loadState():
-    global color
+    global color, palette
     try:
         with open(STATE_FILE, "rb") as f:
-            data = f.read()
-            color = list(data)
+            data = list(f.read())
+            color = data[:4]
+            j = 0
+            for i in range(4, PALETTE_LENGTH*4, 4):
+                palette[j] = {"h":data[i],"s":data[i+1],"v":data[i+2],"a":data[i+3]}
+                j += 1
 
         print(f"Restored state from '{STATE_FILE}': {color}")
     except Exception as e:
@@ -181,7 +202,9 @@ def loadState():
 def saveState():
     with open(STATE_FILE, "wb") as of:
         of.write(bytes(color))
-    print(f"Saved state to '{STATE_FILE}': {color}")
+        for c in palette:
+            of.write(bytes([c['h'], c['s'], c['v'], c['a']]))
+    print(f"Saved state to '{STATE_FILE}': {color} + palette")
 
 atexit.register(saveState)
 
