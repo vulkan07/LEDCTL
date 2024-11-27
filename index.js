@@ -12,11 +12,22 @@ const POWER_BTN = 1;
 const DIM_BTN = 2;
 let buttons = 0; // 8 bits each correspond to a button defined above
 
-
 const PACKET_SEND_MASK = 128;
 const PACKET_COLOR = 1;
 const PACKET_BUTTONS = 2;
 const PACKET_PALETTE = 3;
+
+
+document.getElementById('slider_h').oninput = onSlider;
+document.getElementById('slider_s').oninput = onSlider;
+document.getElementById('slider_v').oninput = onSlider;
+document.getElementById('slider_a').oninput = onSlider;
+
+
+function sendData(data) {
+//    if (ws.readyState === ws.OPEN)
+        ws.send(data);
+}
 
 // ChatGPT's magical compact HSV->RGB function
 // input/output range: 0-255
@@ -26,16 +37,12 @@ function HSVtoRGB({ h, s, v }) {
   return { r: Math.round(f(5) * 255), g: Math.round(f(3) * 255), b: Math.round(f(1) * 255) };
 }
 
-document.getElementById('slider_h').oninput = sendColorUpdate;
-document.getElementById('slider_s').oninput = sendColorUpdate;
-document.getElementById('slider_v').oninput = sendColorUpdate;
-document.getElementById('slider_a').oninput = sendColorUpdate;
-
-
 function syncPalette() {
     for (let i = 0; i < PALETTE_LEN; i++) {
-        if ( !Object.values(palette[i]).every(v => !v) ) // only change color if not black, that means its unassigned
-            document.getElementById("btn"+(i+1)).style.background = "rgb("+ palette[i].r + "," + palette[i].g + "," + palette[i].b + ")";
+        if ( Object.values(palette[i]).every(v => !v) ) // only change color if not black, that means its unassigned
+            continue
+        const rgb2 = HSVtoRGB({h:palette[i].h,s:palette[i].s,v:palette[i].v});
+        document.getElementById("btn"+(i+1)).style.background = "rgb("+ rgb2.r + "," + rgb2.g + "," + rgb2.b + ")";
     }
 }
 function setButtonClass(element, classname, set) {
@@ -45,11 +52,7 @@ function setButtonClass(element, classname, set) {
     
 }
 function syncButtons() {
-    console.log(buttons);
     setButtonClass(document.getElementById('powerbtn'), "pressed", buttons & 1);
-    setButtonClass(document.getElementById('fadebtn'), "pressed", buttons & 2);
-    setButtonClass(document.getElementById('circadianbtn'), "pressed", buttons & 3);
-    setButtonClass(document.getElementById('savebtn'), "pressed", false);
 }
 
 function syncSliders() {
@@ -62,7 +65,7 @@ function syncSliders() {
     ss.value = color.s*4;
     sv.value = color.v*4;
     sa.value = color.a*4;
-    let rgb2 = HSVtoRGB({h:color.h,s:255,v:255});
+    const rgb2 = HSVtoRGB({h:color.h,s:255,v:255});
     ss.style.backgroundImage = "linear-gradient(90deg, gray, rgb(" + rgb2.r + "," + rgb2.g + "," + rgb2.b + "))";
     sv.style.backgroundImage = "linear-gradient(90deg, black, rgb(" + rgb2.r + "," + rgb2.g + "," + rgb2.b + "))";
 }
@@ -95,8 +98,8 @@ function connectWebSocket() {
                     const length = data[1];
 
                     let j = 0;
-                    for (let i = 2; i < length*3; i+=3) {
-                        palette[j] = {r:data[i], g:data[i+1], b:data[i+2]};
+                    for (let i = 2; i < length*4; i+=4) {
+                        palette[j] = {h:data[i], s:data[i+1], v:data[i+2], a:data[i+3]};
                         j++;
                     }
                     syncPalette();
@@ -104,7 +107,8 @@ function connectWebSocket() {
                     break;
 
                 case PACKET_BUTTONS:
-                    console.log("skipped :Synced buttons");
+                    buttons = data[1];
+                    syncButtons();
                     break;
             }
         } catch (err) {
@@ -119,9 +123,9 @@ function connectWebSocket() {
         document.getElementById('feedback').classList.add("hidden");
         document.getElementById('spinner').classList.add("hidden");
 
-        ws.send( new Uint8Array([PACKET_COLOR]) );
-        ws.send( new Uint8Array([PACKET_BUTTONS]) );
-        ws.send( new Uint8Array([PACKET_PALETTE]) );
+        sendData( new Uint8Array([PACKET_COLOR]) );
+        sendData( new Uint8Array([PACKET_BUTTONS]) );
+        sendData( new Uint8Array([PACKET_PALETTE]) );
     };
     ws.onclose = (event) => {
         console.log("Connection lost, retrying in a bit");
@@ -142,7 +146,7 @@ function powerButtonUpdate() {
         btn.classList.remove("pressed");
     
     const packet = new Uint8Array([PACKET_BUTTONS | PACKET_SEND_MASK, buttons]);
-    ws.send( packet );
+    sendData( packet );
 }
 function dimButtonUpdate() {
     let btn = document.getElementById('dimbtn')
@@ -154,9 +158,43 @@ function dimButtonUpdate() {
     }
     
     const packet = new Uint8Array([PACKET_BUTTONS | PACKET_SEND_MASK, buttons]);
-    ws.send( packet );
+    sendData( packet );
 }
 
+// index=-1 means no button was pressed, used for deselecting, when a slider is moved
+function colorButton(index) {
+    
+    if ( index !== -1 && Object.values(palette[index-1]).every(v => !v) ) // only change color if not black, that means its unassigned
+        return;
+
+    let btn;
+    for (let i = 1; i <= PALETTE_LEN; i++) {
+        btn = document.getElementById('btn'+i);
+        if (i === index)
+            btn.classList.add("pressed");
+        else
+            btn.classList.remove("pressed");
+    }
+    
+    if (index === -1) return;
+
+    color = {
+        h: palette[index-1].h,
+        s: palette[index-1].s,
+        v: palette[index-1].v,
+        a: palette[index-1].a,
+    };
+    syncSliders();
+
+    const packet = new Uint8Array([PACKET_BUTTONS | PACKET_SEND_MASK, buttons]);
+    sendData( packet );
+    sendColorUpdate();
+}
+
+function onSlider() {
+    colorButton(-1); // unselect selected color
+    sendColorUpdate();
+}
 
 function sendColorUpdate() {
     if (!synced) return;
@@ -173,9 +211,6 @@ function sendColorUpdate() {
     color = {h,s,v,a};
     syncSliders();
 
-//    let rgb = HSVtoRGB(hsv);
-
     let data = new Uint8Array([PACKET_COLOR | PACKET_SEND_MASK, h, s, v, a]);
-    if (ws.readyState === ws.OPEN)
-        ws.send(data);
+    sendData(data);
 }

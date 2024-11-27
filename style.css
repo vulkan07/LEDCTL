@@ -120,7 +120,7 @@ input[type=range]::-webkit-slider-thumb {
   height: 52px;
   width: 18px;
   border-radius: 3px;
-  border: #efefef 3px solid;
+  border: #505055 3px solid;
   background: #202020;
   cursor: pointer;
   -webkit-appearance: none;

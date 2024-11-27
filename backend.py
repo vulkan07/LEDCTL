@@ -24,13 +24,18 @@ arduino = None
 ## LED CONTROLLER STATE ##
 STATE_FILE = ".state"
 color = [0,0,0,0]
+
 PALETTE_LENGTH = 9
 palette = []
-buttons = 0
 
-palette.append({"r":255,"g":0,"b":0})
-palette.append({"r":0,"g":255,"b":0})
-palette.append({"r":255,"g":255,"b":0})
+POWER_BTN = 1
+DIM_BTN = 2
+buttons = 1 # power button starts with on
+
+palette.append({"h":255,"s":255,"v":128,"a":255})
+palette.append({"h":128,"s":255,"v":128,"a":255})
+palette.append({"h":66,"s":255,"v":128,"a":255})
+palette.append({"h":230,"s":100,"v":128,"a":155})
 
 ## EXPERIMENTAL GOOFY PHYSICS IDK LOGARITHM WTF GAMMA AND SHIT ##
 def gamma_correct(value, gamma=1.8):
@@ -57,18 +62,23 @@ def arduino_connect():
     print()
 
 
-def sendUART():
+def colorToArduino():
     if arduino == None:
         arduino_connect()
         return
     try:
         rgb = HSVtoRGB(color)
-        rgba = [0,0,0,color[3]]
-        for i in range(3)
-        #    rgba[i] = gamma_correct(rgb[i])
+        rgba = [0,0,0,0]
+
+        if buttons & POWER_BTN:
+            rgba[3] = color[3]
+
+        for i in range(3):
             rgba[i] = rgb[i] ## SKIPPING GAMMA CORRECTION
+
         print(rgba)
         arduino.write(rgba)
+
     except Exception as e:
         print("Arduino connection failed:", e, "(reconnecting...)")
         raise e
@@ -104,7 +114,7 @@ async def websocket_receive(websocket, path):
                     ## RECEIVE RGB
                     color = list(message[1::])
                   ##  print(color)
-                    sendUART()
+                    colorToArduino()
                     await sync(websocket)
                 else:
                     ## SEND RGB
@@ -125,11 +135,13 @@ async def websocket_receive(websocket, path):
                             data.append(0)
                             data.append(0)
                             data.append(0)
+                            data.append(0)
                             continue
                         c = palette[i]
-                        data.append(c["r"])
-                        data.append(c["g"])
-                        data.append(c["b"])
+                        data.append(c["h"])
+                        data.append(c["s"])
+                        data.append(c["v"])
+                        data.append(c["a"])
 
                     await websocket.send(bytes(data))
                 continue
@@ -139,6 +151,7 @@ async def websocket_receive(websocket, path):
                 if message[0] & PACKET_RECEIVE_BIT:
                     print(f"Receiving buttons from {websocket.remote_address[0]}")
                     buttons = message[1]
+                    colorToArduino()
                     print(bin(buttons))
                 else:
                     print(f"Syncing buttons for {websocket.remote_address[0]}")
@@ -177,7 +190,7 @@ async def start_server():
     loadState()
     arduino_connect()
     if arduino != None:
-        sendUART()
+        colorToArduino()
 
     async with websockets.serve(websocket_receive, "0.0.0.0", HTTP_PORT):
         print(f"WebSocket started on {HTTP_PORT}")
